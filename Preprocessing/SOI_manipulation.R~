@@ -1,0 +1,41 @@
+# Load the Southern Oscillation Index as a csv table as downloaded from the Australian Bureau of Meteorology:
+
+SOI=read.csv('SOI.csv')
+SOItrim=SOI[,2:13] # Get rid of the year variable (for now)
+
+# Turn this into a one dimensional array:
+
+SOIcol = as.vector(t(SOItrim))
+
+# To get the day numbers for the first day of each month load an old version of the dataset:
+
+WYGAMslp=read.table('/scratch/rw307/USA/QualityControlled/WYGAMslp.txt')
+
+
+
+
+library(stats)
+
+frame=cbind(1:15340,SOIcol)
+frame=as.data.frame(frame)
+names(frame)=c('Time','SOI') # Just getting the 2 columns I'm interested in for now
+new=c(15341,9.4)
+frame=rbind(frame,new) # Getting a value for 1st January 2012 so that I don't have a weird cut off point
+
+plot(frame$Time,frame$SOI,type="l") # I want to be able to get the values out for each point from 1 to 15340 as this is my interpolated time series effectively (because it's joining up the dots)
+
+want=WYGAMslp[WYGAMslp$Day != '1' & WYGAMslp$Station==1,] 
+time=as.data.frame(want$Time) 
+names(time)=c('Time') # These are all the time points that I don't have SOI values for, but want to interpolate SOI values for...
+
+test=approx(frame$Time,frame$SOI,seq(1:15340),method="linear") # This should be my 15340 values of SOI
+
+soi=as.data.frame(test)
+soi=as.data.frame(soi[,2])
+
+write.table(soi,'soinew.txt')
+
+plot(WYGAMslp$Time[1:15340],soi[1:15340,1],type="l",cex.lab=1.5,cex.axis=1.5,cex.main=1.5,xlab="Time",ylab="SOI",main="A plot to show the time series of SOI, interpolated from the monthly values")
+
+# Saved workspace image as soinew_manipulation.R
+
