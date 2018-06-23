@@ -1,0 +1,154 @@
+# Data for the South West model, taken from Distance_to_coast.R:
+
+# First get the dataframe without distance to the coast and the separate distance to coast model:
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/swupdatefeb29gam.RData') # These aren't sorted by anything!
+
+coast=read.csv('/scratch/rw307/USA/QualityControlled/coastdist_sw.csv',header=TRUE) # These are sorted by distance to the coast in meters!
+names(coast)=c('Lat','Long','Coast')
+
+# Need to work out how to get the distance to the coast values paired up with the right stations in the main dataframe!
+
+# Could sort both by lat and then combine:
+
+day1101=swupdatefeb29gam[swupdatefeb29gam$Time==11324,]
+day1101lat=day1101[with(day1101,order(-Lat)),]
+
+coastlat=coast[with(coast,order(-Lat)),]
+
+swcoastlat=swupdatefeb29gam[with(swupdatefeb29gam,order(-Lat)),]
+
+# Is it now easier to repeat the necessary observations 15340 times each or to sort the big dataframe into time order (after Lat order) and then just repeat the distance vector 15340 times - I think the latter will be simpler, but I need to check the Lat ordering is preserved:
+
+swcoastlattime=swcoastlat[with(swcoastlat,order(Time)),] # This seems to have worked and the Lat's are still in the right order!
+
+# Now add the coastal distances to this data frame:
+
+swcoastlattime$Coast=rep(coastlat$Coast,15340)
+
+save(swcoastlattime,file='swcoastlattime.RData')
+
+# Now thin this dataset:
+
+swcoastless=swcoastlattime[swcoastlattime$Year != 2011 | swcoastlattime$Month != 12 | swcoastlattime$Day != 31, ]
+
+# Then take every other day:
+
+swcoastthin=swcoastless[-(seq(0,2408223,2)),]
+
+save(swcoastthin,file='swcoastthin.RData')
+
+# Taking every other day without removing a day first:
+
+swcoastthin1=swcoastlattime[-(seq(0,2408380,2)),]
+
+save(swcoastthin1,file='swcoastthin1.RData')
+
+# Taking every other day at all stations (so just the odd days):
+
+swlatstat=swcoastlattime[with(swcoastlattime,order(Station)),]
+
+swcoastthinother=swlatstat[-(seq(0,2408380,2)),]
+
+save(swcoastthinother,file='swcoastthinother.RData')
+
+# Now I want to build a model incorporating this:
+
+modelswcoast3g3=gam(TMEAN60~s(Time,k=3)+s(Dyear)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=swcoastthin,family=Gamma(link=identity),gamma=1.4)
+
+# Create just the last quarter of the record for prediction purposes:
+
+swcoastlattimelq=swcoastlattime[swcoastlattime$Time>=11324,]
+
+save(swcoastlattimelq,file='swcoastlattimelq.RData')
+
+# Look at the model:
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelswcoast3g3.RData')
+
+summary(modelswcoast3g3) # There's a point 5 percent increase in the adjusted R squared (it's now 0.889)
+
+plot(modelswcoast3g3,rug=FALSE) # Of course it may be worth including distance to the coast as a smooth function with Dyear - as you would expect a difference according to the land sea temperature gradient...
+
+# See if distance to coast is has a strong relationship with any other loacation variables that it might just be acting as a proxy for:
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/swcoastthin.RData')
+single=swcoastthin[1:157,]
+
+plot(single[,c(8:10,21)]) # No really obvious relationships which is good :)
+
+# Look at the model compared to the model without coastal distance incorporated:
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelsw3gf3.RData')
+
+summary(modelsw3gf3) # Adjusted R-squared 0.884
+
+plot(modelsw3gf3,rug=FALSE) # Lat and Long smooth plots have changed by adding in distance to coast, sun has also flattened out slightly I think, uw appears to have got more curved - the smooth function of coast does do something noticeable though and so I definitely think it's worth investigating a model with this in there!
+
+# Look at the model with distance to the coast as a function of day of the year:
+
+# modelswcoast7g3=gam(TMEAN60~s(Time,k=3)+s(Dyear,Coast)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+Altitude,data=swcoastthin,family=Gamma(link=identity),gamma=1.4)
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelswcoast7g3.RData')
+
+summary(modelswcoast7g3) # Adjusted R squared still 0.889 - so perhaps not worth over-complicating the model - have a look at plots as well though
+
+plot(modelswcoast7g3,rug=FALSE) # Suggests that distance to the coast has exactly the same impact on temperature throughout the year! This seems very strange, but I can't see any mistakes in the model formulation so I think it must really be the case => No point in investigating this model any more!
+
+# As including coast does seem to have a noticeable improvement on model performance look at including coast in the other models that also have a Dyear,... smooth surface:
+
+modelswcoast4g3=gam(TMEAN60~s(Time,k=3)+s(Dyear,prcpf)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=swcoastthin,family=Gamma(link=identity),gamma=1.4)
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelswcoast4g3.RData')
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelsw4gf3.RData')
+
+summary(modelswcoast4g3) # Adjusted R squared score still 0.889 (as opposed to 0.883 without the addition of Coast)
+ 
+modelswcoast5g3=gam(TMEAN60~s(Time,k=3)+s(Dyear,uw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(prcpf)+s(vw)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=swcoastthin,family=Gamma(link=identity),gamma=1.4)
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelswcoast5g3.RData')
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelsw5gf3.RData')
+
+summary(modelswcoast5g3) # Adjusted R squared score still 0.889 (as opposed to 0.884 without the addition of Coast)
+
+modelswcoast6g3=gam(TMEAN60~s(Time,k=3)+s(Dyear,vw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(prcpf)+s(uw)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=swcoastthin,family=Gamma(link=identity),gamma=1.4)
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelswcoast6g3.RData')
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/modelsw6gf3.RData')
+
+summary(modelswcoast6g3) # Adjusted R squared score still 0.889 (as opposed to 0.883 without the addition of Coast)
+
+# Look at the station level performance of the coastal models:
+
+load('/scratch/rw307/Reading/Scripts/SouthWest/ClusterScripts/ModelOutputs/new_coast.RData')
+
+i=1
+
+par(mfrow=c(3,5))
+for (i in 1:15){
+stat=new[new$Station==i,]
+plot(density(na.omit(stat$TMEAN),bw=1.3),ylim=c(0,0.07),main=paste('Station ',i))
+lines(density(stat$lsmodel3coast,bw=1.3),col="red") # Saved as Stats_1_15_sw_coast
+}
+
+
+i=16
+
+par(mfrow=c(3,5))
+for (i in 16:30){
+stat=new[new$Station==i,]
+plot(density(na.omit(stat$TMEAN),bw=1.3),ylim=c(0,0.07),main=paste('Station ',i))
+lines(density(stat$lsmodel3coast,bw=1.3),col="red") # Saved as Stats_16_30_sw_coast
+}
+
+i=31
+
+par(mfrow=c(3,5))
+for (i in 31:45){
+stat=new[new$Station==i,]
+plot(density(na.omit(stat$TMEAN),bw=1.3),ylim=c(0,0.07),main=paste('Station ',i))
+lines(density(stat$lsmodel3coast,bw=1.3),col="red") # Saved as Stats_31_45_sw_coast
+}
+
+
+

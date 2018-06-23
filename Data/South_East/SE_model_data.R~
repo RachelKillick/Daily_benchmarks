@@ -1,0 +1,124 @@
+# From 'Distance_to_coast_modelling_SE.R'
+
+# First get the dataframe without distance to the coast and the separate distance to coast model:
+
+load('/scratch/rw307/Reading/Scripts/SouthEast/seupdatefeb29gam.RData') # These are currently sorted by latitude - with station 1 being the station furthest north
+
+# Get rid of my two stations that are in Florida Keys (Islands off the coast of Florida) => Takes me down to 155 stations - NEED TO REMEMBER THIS WHEN ALTERING CODE!!!
+
+seupdatenoisland=seupdatefeb29gam[seupdatefeb29gam$Station<=155,]
+
+coastse=read.csv('/scratch/rw307/USA/QualityControlled/coastdist_se.csv',header=TRUE) # These are sorted by distance to the coast in meters!
+names(coastse)=c('Lat','Long','Coast')
+
+# Need to work out how to get the distance to the coast values paired up with the right stations in the main dataframe!
+
+# Could sort both by lat and then combine:
+
+day1101se=seupdatefeb29gam[seupdatefeb29gam$Time==11324,]
+
+coastselat=coastse[with(coastse,order(-Lat)),]
+coastselat=coastselat[1:155,1:3] # Getting rid of the two stations that are off the coast of Florida
+
+#swcoastlat=swupdatefeb29gam[with(swupdatefeb29gam,order(-Lat)),]
+
+# Order by time, so I can just repeat the coastal vector 15340 times
+
+secoastlattime=seupdatenoisland[with(seupdatenoisland,order(Time)),] # This seems to have worked and the Lat's are still in the right order!
+
+secoastlattime$Lat[1:155]-coastselat$Lat # All zeros - therefore all latitudes match up
+secoastlattime$Long[1:155]-coastselat$Long # Stations 70 and 71 are a different way round in the two data frames => Need to rectify this before proceeding!
+
+# Much much easier to re-arrange the coast dataframe than the whole massive dataframe!
+
+coastselat[156,]=coastselat[70,]
+coastselat[157,]=coastselat[71,]
+
+coastselat[70,]=coastselat[157,]
+coastselat[71,]=coastselat[156,]
+
+coastselat=coastselat[1:155,]
+
+# Check everything now matches up:
+
+secoastlattime$Lat[1:155]-coastselat$Lat # All zeros - therefore all latitudes match up
+secoastlattime$Long[1:155]-coastselat$Long # All zeros - therefore all longitudes now match up
+
+# Now add the coastal distances to this data frame:
+
+secoastlattime$Coast=rep(coastselat$Coast,15340)
+
+secoastlattime$Coast[1:155]-coastselat$Coast # All zeros - so all the coastal distances should have gone in the right place
+
+save(secoastlattime,file='secoastlattime.RData')
+
+# Now thin this dataset:
+
+secoastless=secoastlattime[secoastlattime$Year != 2011 | secoastlattime$Month != 12 | secoastlattime$Day != 31, ]
+
+# Then take every other row which is every day between all stations:
+
+secoastthin=secoastless[-(seq(0,2377545,2)),]
+
+save(secoastthin,file='secoastthin.RData')
+
+# Try taking every other day (which is just every other row without having to first remove all the 31st December 2011s):
+
+secoastthin1=secoastlattime[-(seq(0,2377700,2)),]
+
+save(secoastthin1,file='secoastthin1.RData')
+
+# Thinning the dataset by just having the odd days - re-order by station:
+
+secoastlatstat=secoastlattime[with(secoastlattime,order(Station)),]
+
+secoastthinother=secoastlatstat[-seq(0,2377700,2),] # Just all the odd days
+
+save(secoastthinother,file='secoastthinother.RData')
+
+# Create just the last quarter of the record for prediction purposes:
+
+secoastlattimelq=secoastlattime[secoastlattime$Time>=11324,]
+
+save(secoastlattimelq,file='secoastlattimelq.RData')
+
+# Now I want to build a model incorporating this:
+
+modelsecoast3g3=gam(TMEAN60~s(Time,k=3)+s(Dyear)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin,family=Gamma(link=identity),gamma=1.4)
+
+# Look at the model (compared to the same model without the distance to the coast variable (and the old model also had the two extra stations in the sea)):
+
+load('/scratch/rw307/Reading/Scripts/SouthEast/ClusterScripts/ModelOutputs/modelsecoast3g3.RData') # New model
+load('/scratch/rw307/Reading/Scripts/SouthEast/ClusterScripts/ModelOutputs/modelse3gf3.RData') # Old model
+
+summary(modelsecoast3g3) # Adjusted R-squared 0.921
+summary(modelse3gf3) # Adjusted R-squared 0.921 before too - so it's probably not worth having a distance to the coast variable from this point of view (which does surprise me) - still good to look at how the model performs on a station by station level though as if there's a noticeable improvement here it would be worth the complication
+
+plot(modelsecoast3g3,rug=FALSE)
+plot(modelsecoast3g3,select=12) # Warmer the further you are from the coast, seems reasonable - doesn't seem to make too much difference though which is really surprising (I am also slightly concerned as to why this model fitted so much faster than its southwest counterpart...) 
+
+plot(modelse3gf3,rug=FALSE) # Comparing plots of old and new models the smooth functions are very similar, the only ones that may have changed slightly are the lat and long plots, which is as expected
+
+# See if distance to coast is has a strong relationship with any other loacation variables that it might just be acting as a proxy for:
+
+load('/scratch/rw307/Reading/Scripts/SouthEast/secoastthin.RData')
+single=secoastthin[1:155,]
+
+plot(single[,c(8:10,21)]) # There's actually quite a strong linear relationship between coast and altitude (correlation coefficient of 0.85) this may be why adding coast into my model doesn't seem to cause a noticeable improvement - will look at the station level too though
+
+# Look at the model with distance to the coast as a function of day of the year:
+
+modelsecoast7g3=gam(TMEAN60~s(Time,k=3)+s(Dyear,Coast)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+Altitude,data=secoastthin,family=Gamma(link=identity),gamma=1.4)
+
+load('/scratch/rw307/Reading/Scripts/SouthEast/ClusterScripts/ModelOutputs/modelsecoast7g3.RData')
+
+summary(modelsecoast7g3) # Adjusted R-squared now only 0.919, so it has actually gone down! Therefore it's almost definitely not worth persuing this model any further
+
+plot(modelsecoast7g3,rug=FALSE)
+plot(modelsecoast7g3,select=2,rug=FALSE) # Effect of distance to the coast does not seem to change during the year - I do think this is weird, but I can't see anything wrong with the model
+
+# The effects of sun, pwc and slp may be changed a bit from modelse3gf3 looking at the smooth function plots between this model and modelsecoast7g3
+
+
+
+
