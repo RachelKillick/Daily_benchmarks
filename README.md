@@ -8,7 +8,7 @@ In the Data subfolder you can find the code I used to thin the data to make the 
 
 In the pre-processing folder you will find the code I used to interpolate the Southern Oscillation Index and the reanalysis fields (the data for these variables are in the Data subfolder). This allows you to do different interpolations should you choose to do so. However, note that the existing model formulation expects inputs at the daily station level.
 
-You can find .RData files of the fitted models in the Data folder. In the post-processing folder you can find the code that adds and smooths Gamma noise.
+Unfortnately the .RData files of the fitted models are too large to be uploaded, but I'm happy to provide them on request. This offer also applies to any other .RData files you feel would be useful as many of them are over the size limit for GitHub. In the post-processing folder you can find the code that adds and smooths Gamma noise.
 
 Code used to corrupt the data is found in the Inhomogeneities folder.
 
