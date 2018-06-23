@@ -1,0 +1,62 @@
+# For the South East the models I need to experiment with are with and without coast? For different thinnned datasets - and with different variables included as a smooth surface with Dyear (and ideally I should only change one thing at a time):
+
+library(mgcv)
+load('secoastthin1.RData')
+
+modelsecoast3gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast3gf3th1,file='modelsecoast3gf3th1.RData')
+rm(modelsecoast3gf3th1)
+
+modelsecoast4gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,prcpf)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast4gf3th1,file='modelsecoast4gf3th1.RData')
+rm(modelsecoast4gf3th1)
+
+modelsecoast5gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,uw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin1,family=Gamma(link=identity),gamma=1.4)
+
+save(modelsecoast5gf3th1,file='modelsecoast5gf3th1.RData')
+rm(modelsecoast5gf3th1)
+
+modelsecoast6gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,vw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast6gf3th1,file='modelsecoast6gf3th1.RData')
+rm(modelsecoast6gf3th1)
+
+modelse3gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelse3gf3th1,file='modelse3gf3th1.RData')
+rm(modelse3gf3th1)
+
+modelse4gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,prcpf)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+tempf+s(slp100)+s(soinew)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelse4gf3th1,file='modelse4gf3th1.RData')
+rm(modelse4gf3th1)
+
+modelse5gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,uw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelse5gf3th1,file='modelse5gf3th1.RData')
+rm(modelse5gf3th1)
+
+modelse6gf3th1=gam(TMEAN60~s(Time,k=3)+s(Dyear,vw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(prcpf)+tempf+s(slp100)+s(soinew)+Altitude,data=secoastthin1,family=Gamma (link=identity),gamma=1.4)
+
+save(modelse6gf3th1,file='modelse6gf3th1.RData')
+rm(modelse6gf3th1,secoastthin1)
+
+load('secoastthin.RData')
+
+modelsecoast4gf3th=gam(TMEAN60~s(Time,k=3)+s(Dyear,prcpf)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(vw)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast4gf3th,file='modelsecoast4gf3th.RData')
+rm(modelsecoast4gf3th)
+
+modelsecoast5gf3th=gam(TMEAN60~s(Time,k=3)+s(Dyear,uw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(vw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast5gf3th,file='modelsecoast5gf3th.RData')
+rm(modelsecoast5gf3th)
+
+modelsecoast6gf3th=gam(TMEAN60~s(Time,k=3)+s(Dyear,vw)+s(Long)+s(Lat)+s(sun)+s(pwc)+s(uw)+s(prcpf)+tempf+s(slp100)+s(soinew)+s(Coast)+Altitude,data=secoastthin,family=Gamma (link=identity),gamma=1.4)
+
+save(modelsecoast6gf3th,file='modelsecoast6gf3th.RData')
+rm(modelsecoast6gf3th)
+

@@ -1,0 +1,355 @@
+# SE world 3
+
+library(mgcv) # Necessary for the prediction stage
+
+load('newupd2_for_SE_IH_scripts_241014.RData') # The station data - Need to make sure I have the noise values stored in this dataframe that will need to be added on to the predictions 
+
+# Load the model that the predictions need to be made from:
+
+load('modelsecoast5gf3th1.RData')
+
+# Don't need the 20s or the as:
+
+Predictset=newupd2 # I'll have to make sure that this is updated to be the correct name from the loaded file
+rm(newupd2) # Remove the dataframe newup as I don't want two massive datasets floating around
+
+Predictset$Station=sort(rep(1:210,30680))
+
+Predictset$noise=Predictset$pred5th1-Predictset$lsmodel45b
+# pred5th1 = 60 - raw preds
+# pred5th1gam = unsmoothed noise - raw preds (i.e. this is the unsmoothed noise that will be added on because the mean has been subtracted)
+# lsmodel...= 60 - (smoothed noise + (60 - pred5th1)) = 60 - (smoothed noise + 60 - (60 - raw preds)) = 60 - (smoothed noise + raw preds) = 60 - raw preds - smoothed noise = pred5th1 - smoothed noise => smoothed noise = pred5th1 - lsmodel... 
+
+# Make an extra row that will be storing the new predictions (with added noise)
+
+Predictset$Inhomogeneous=NA
+
+Predictsetf=Predictset[Predictset$Station_Realisation==6,] # Need to create this dataframe otherwise my new predictions and my old dataframe won't have the same number of rows...
+
+# Want to be able to store the location of the inhomogeneities (and their types) not sure how many there will be at each station => make the storage dataframe much bigger than it should need to be (i.e. Suppose 10 inhomogeneities at ALL stations - so as long as they don't all have more than ten it should be OK)
+
+Inhomogeneity=as.data.frame(matrix(nrow=2100,ncol=5))
+names(Inhomogeneity)=c('Station','Location','Type','Method','Size_implemented')
+
+num1=1 # This can be updated as I need to keep a running total of what number inhomogeneity I am on overall so I can add to the appropriate row of the data frame (of course if I want clustered inhomogeneities I'll have to still give that some thought of how to correctly add these in)
+
+for (i in 1:210){
+
+	stat=Predictset[Predictset$Station==i & Predictset$Station_Realisation==6,] # This is where the station will end up
+
+	# Run Poisson process to decide location of inhomogeneities:
+
+	loc=round(14610*cumsum(rexp(15,3))) # I'm multiplying by the number of days an IH can occur on 
+	loca=na.omit(stat[loc,14]) # Get just the elements that are less than the length of the time series - NEED TO MAKE SURE
+	# YOU'RE LOOKING AT THE TIME COLUMN OTHERWISE NAS IN OTHER COLUMNS WILL CAUSE PROBLEMS! 
+	
+	loca=loca[loca<=14610] # So that inhomogeneities can't occur in the last two years of the record
+
+	loca=sort(loca,decreasing=TRUE) # This just means that my 'last' IH will get implemented first so that they won't
+	# interfere with each other in a way I don't like
+
+	# Use a RNG to decide type of inhomgogeneity:
+
+	# Provisionally if we think abrupt changes are more common than gradual:
+
+	n=length(loca) # The number of inhomogeneities we have
+	n1=length(loca) # Just so  I'm not using the same index in 2 loops (even though they should be indexed on the same thing!)
+
+	inhomog=runif(n,0,1) # The random number for each inhomogeneity
+
+        t=runif(n,0,1) # Deciding how the inhomogeneity will be implemented 
+
+	# If the explan var effect is going to be amplified this can be done within the individual bits in the loop...
+
+	if (n==0) { # A quick failsafe (I hope) for if there are no inhomogeneities
+
+		stat = stat
+
+	} else { for (j in 1:n){
+
+				p=loca[j] # So that I have the point at which an inhomogeneity occurs:
+	
+				if (t[j] <= 0.3){ # Making explanatory variable IH addition more likely than constant offset
+
+					sc=sample(x=c(1.5,1.25,1,.75,.5,.25,-.25,-.5,-.75,-1,-1.25,-1.5),size=1)
+
+					stat$noise[1:p]=stat$noise[1:p]+sc # Shelter change can have a +ve or -ve effect
+	
+				} else { 
+
+					if (inhomog[j]<=0.5){ # Shelter change - could add another loop to decide size and
+					# direction
+					
+						sc=sample(x=c(.85,.9,.95,1.05,1.1,1.15),size=1)
+
+						stat$uw[1:p]=sc*stat$uw[1:p]
+						stat$vw[1:p]=sc*stat$vw[1:p]
+						stat$sun[1:p]=sc*stat$sun[1:p] # Della-Marta and Wanner 2006
+	
+					}
+
+					if (inhomog[j] > 0.5 ){ # Station Relocation 
+
+						sr=stat$Station_Realisation[p]
+	
+						statn=Predictset[Predictset$Station==i & Predictset$Station_Realisation!=sr,]
+		
+						ns=stat$noise
+	
+						stat[1:p,]=statn[1:p,]
+
+						stat$noise=ns # To make sure that the underlying predictions are the only things 
+						# that are changing - though I suspect this will result in not enough change and 
+						# the amplification/ dampening of explanatory vars will also be necessary
+
+						# Need to have an sc (size of change) to store - can't make it NA
+
+						# Can also choose to amplify some of the changes in explanatory variables:
+						sc=0 #sample(x=c(.95,1.05),size=1) 
+#						stat$uw[1:p]=sc*stat$uw[1:p]
+#						stat$vw[1:p]=sc*stat$vw[1:p]
+#						stat$sun[1:p]=sc*stat$sun[1:p]
+#						stat$pwc[1:p]=sc*stat$pwc[1:p]
+
+					}
+
+	
+				}
+	
+			Inhomogeneity$Station[(num1)]=stat$Station[1]
+			Inhomogeneity$Location[(num1)]=loca[j]
+			Inhomogeneity$Type[(num1)]=inhomog[j]
+			Inhomogeneity$Method[(num1)]=t[j]
+			Inhomogeneity$Size_implemented[(num1)]=sc
+
+			num1=num1+1
+		
+		}
+
+	}
+
+	statnew=(60-predict.gam(modelsecoast5gf3th1,newdata=stat,type="response"))
+
+	Predictsetf[Predictsetf$Station==i,25]=statnew-stat$noise # The 23 here needs to be reset to be whichever column is the
+	# column called Inhomogeneous	
+
+}
+
+# This preliminary work is looking promising => SAVE IT:
+
+Inhomogeneity=na.omit(Inhomogeneity) # So I don't have all the extra rows that I initially created to store my values in 
+
+Predictsetf$Difference=Predictsetf$Inhomogeneous-Predictsetf$lsmodel45b
+
+Predictsetf1=Predictsetf # Just in case something goes wrong!
+
+load('secoastlattime.RData') # Try this dataset (will need to reorder it first so that it's in station order):
+secoastlat=secoastlattime[with(secoastlattime,order(Station)),]
+
+TMEANl=secoastlat[secoastlat$Station!=95,]
+TMEANl=TMEANl[TMEANl$Station!=108,] # Getting rid of the two stats I don't have in my predicted smaller world
+
+load('neupdatefeb29gam.RData') # So I can select how to make the data missing from these stats
+
+TMEAN=as.data.frame(matrix(nrow=3221400,1))
+TMEAN[1:2347020,1]=TMEANl$TMEAN
+
+sstat=sort(sample(1:148,size=57,replace=FALSE))
+
+for (i in 1:57){
+	TMEAN[((i+152)*15340+1):((i+153)*15340),1]=neupdatefeb29gam$TMEAN[neupdatefeb29gam$Station==sstat[i]]
+}
+
+save(sstat,TMEAN,file='Missing_data_in_world3_SE_241014.RData')
+
+Predictsetf1$TMEAN=TMEAN
+
+Predictsetf1[is.na(Predictsetf1$TMEAN),25] <- NA # Need to make sure that Predictsetf actually HAS a TMEAN column for this to work!
+Predictsetf1$Difference=Predictsetf1$Inhomogeneous-Predictsetf1$lsmodel45b
+
+save(Inhomogeneity,Predictsetf,Predictsetf1,file="SE_world3_IHs.RData") 
+
+Inhomogeneity1=Inhomogeneity # This way I have a copy of my original dataframe in case anything goes wrong!
+
+# The size of an inhomogeneity over a time-period will be the difference between the inhomogeneous series and the clean series (ls...) (probably averaged) over that time period
+# Think about whether people are going to homogenise relative to the last homogeneous sub-period or the period next to where they are - my inhomogeneities are going to stack one on top of each other, so if someone doesn't find one I need to think about what that will look like for them, so I know how to assess it...
+
+Inhomogeneity1$MEAN=NULL
+Inhomogeneity1$MEDIAN=NULL
+
+Inhomogeneitysub1=NULL
+
+for (s in 1:210){
+
+	stat=Predictsetf1[Predictsetf1$Station==s,]	
+	Inhomogeneitysub=Inhomogeneity1[Inhomogeneity1$Station==s,]
+	Inhomogeneitysub=Inhomogeneitysub[with(Inhomogeneitysub,order(Location)),]
+	t=nrow(Inhomogeneitysub)
+
+	if (t==0){
+	#If this is true (i.e. t=0) I don't want anything to happen - so I'll see if this does what I expect...
+	}
+
+	if (t==1){
+
+		Inhomogeneitysub$MEAN[t]=mean(stat$Difference[1:(Inhomogeneitysub$Location[t])],na.rm=TRUE)
+		Inhomogeneitysub$MEDIAN[t]=median(stat$Difference[1:(Inhomogeneitysub$Location[t])],na.rm=TRUE)
+		Inhomogeneitysub$Length[t]=length(stat$Difference[1:(Inhomogeneitysub$Location[t])])
+
+	} 
+	
+	if (t>1) {
+
+		for (u in 1:t){
+
+			if (u==1){
+
+				Inhomogeneitysub$MEAN[u]=mean(stat$Difference[1:(Inhomogeneitysub$Location[u])],na.rm=TRUE)
+				Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[1:(Inhomogeneitysub$Location[u])],na.rm=TRUE)
+				Inhomogeneitysub$Length[u]=length(stat$Difference[1:(Inhomogeneitysub$Location[u])])
+
+			} 
+		
+			if (u >1){
+	
+			Inhomogeneitysub$MEAN[u]=mean(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])],na.rm=TRUE)	
+			Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])],na.rm=TRUE)				
+			Inhomogeneitysub$Length[u]=length(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])])	
+				
+			}
+		}	
+	}
+
+	Inhomogeneitysub1=rbind(Inhomogeneitysub1,Inhomogeneitysub)
+
+}
+
+#Inhomogeneitysub2=Inhomogeneitysub1 # So if I accidentally corrupt anything I have something to work back to!
+#Inhomogeneitysub2[Inhomogeneitysub2$Method<=0.3,4] <- 'co'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method!='co',4] <- 'ev'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method=='co' & Inhomogeneitysub2$Type <= 0.67, 3] <- 'sc'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method=='co' & Inhomogeneitysub2$Type != 'sc', 3] <- 'urb'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method!='co' & Inhomogeneitysub2$Type < 0.34, 3] <- 'sc'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method!='co' & Inhomogeneitysub2$Type != 'sc' & Inhomogeneitysub2$Type >= 0.34 & #Inhomogeneitysub2$Type <= 0.67 , 3] <- 'sr'
+#Inhomogeneitysub2[Inhomogeneitysub2$Method!='co' & Inhomogeneitysub2$Type!= 'sc' & Inhomogeneitysub2$Type!='sr' & Inhomogeneitysub2$Type > 0.67, 3] <- 'urb'
+
+save(Inhomogeneitysub1,file='Inhomogeneitysub1_SE_world3.RData') 
+
+#### Don't want to run past here when I'm running the script on automatic:
+
+#summary(Inhomogeneitysub1$MEAN/Inhomogeneitysub1$Length) # There don't seem to be any inhomogeneities that do really stupid things :)
+
+# Would quite like the above tables in a monthly form too to make comparison with PHA easier:
+
+#load('/scratch/rw307/Reading/Scripts/smallerwy_10914.RData')
+
+#load('/scratch/rw307/Reading/Scripts/Wyoming_new/wyupdatefeb29gam.RData') # So that my data frames can have a month and year column:
+
+#Predictsetf$Year=rep(wyupdatefeb29gam$Year[1:15340],159)
+#Predictsetf$Month=rep(wyupdatefeb29gam$Month[1:15340],159)
+
+#Yearrec=sort(rep(1970:2011,12))
+#Monthrec=rep(1:12,42)
+
+#wymonthly22dstep=as.data.frame(matrix(nrow=80136,ncol=5))
+#names(wymonthly22dstep)=c('Station','Year','Month','Clean','Corrupt')
+#wymonthly22dstep$Station=sort(rep(1:159,504))
+#wymonthly22dstep$Year=Yearrec
+#wymonthly22dstep$Month=Monthrec
+
+#for (i in 1:159){
+#	stat=Predictsetf[Predictsetf$Station==i,]
+#	for (j in 1970:2011){
+#		year=stat[stat$Year==j,]
+#			for (k in 1:12){
+#				month=year[year$Month==k,]
+#				wymonthly22dstep[((i-1)*504+(j-1970)*12+k),4]=mean(month$lsmodel22a,na.omit=TRUE)
+#				wymonthly22dstep[((i-1)*504+(j-1970)*12+k),5]=mean(month$Inhomogeneous,na.omit=TRUE)
+#			}
+#	}
+#}
+
+# Add a column to this dataframe that has month number:
+
+#wymonthly22dstep$MonthNo=rep(1:504,159)
+
+# Now need my inhomogeneity locations to also have a month number...:
+
+#IHloc=as.data.frame(matrix(nrow=502,ncol=26))
+
+#for (i in 1:502){
+
+#	IHloc[i,]=Predictsetf[Predictsetf$Station==(Inhomogeneity1$Station[i]) & Predictsetf$Time==(Inhomogeneity$Location[i]),]
+
+#} # Getting all the rows where inhomogeneities occur
+
+#names(IHloc)=names(Predictsetf)
+
+#IHloc1=as.data.frame(matrix(nrow=502,ncol=6))
+
+#for (i in 1:502){
+
+#	IHloc1[i,]=wymonthly22dstep[wymonthly22dstep$Station==(IHloc$Station[i]) & wymonthly22dstep$Year==(IHloc$Year[i]) & wymonthly22dstep$Month==(IHloc$Month[i]),]
+
+#}
+
+#names(IHloc1)=names(wymonthly22dstep)
+#IHloc1=IHloc1[with(IHloc1,order(Station,MonthNo)),]
+
+# I think that the month an inhomogeneity occurs in would be counted as inhomogeneous => Include this month in the averaging
+
+#Inhomogeneity2=wymonthly22dstep
+#Inhomogeneity2$Difference=Inhomogeneity2$Corrupt-Inhomogeneity2$Clean
+#Inhomogeneity2$MEAN=NULL
+#Inhomogeneity2$MEDIAN=NULL
+
+#Inhomogeneity2sub1=NULL
+
+#for (s in 1:159){
+
+#	stat=Inhomogeneity2[Inhomogeneity2$Station==s,]	
+#	Inhomogeneitysub=IHloc1[IHloc1$Station==s,]
+#	t=nrow(Inhomogeneitysub)
+
+#	if (t==0){
+	#If this is true (i.e. t=0) I don't want anything to happen - so I'll see if this does what I expect...
+#	}
+
+#	if (t==1){
+
+#		Inhomogeneitysub$MEAN[t]=mean(stat$Difference[1:(Inhomogeneitysub$MonthNo[t])])
+#		Inhomogeneitysub$MEDIAN[t]=median(stat$Difference[1:(Inhomogeneitysub$MonthNo[t])])
+#		Inhomogeneitysub$Length[t]=length(stat$Difference[1:(Inhomogeneitysub$MonthNo[t])])
+
+#	} 
+	
+#	if (t>1) {
+
+#		for (u in 1:t){
+
+#			if (u==1){
+
+#				Inhomogeneitysub$MEAN[u]=mean(stat$Difference[1:(Inhomogeneitysub$MonthNo[u])])
+#				Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[1:(Inhomogeneitysub$MonthNo[u])])
+#				Inhomogeneitysub$Length[u]=length(stat$Difference[1:(Inhomogeneitysub$MonthNo[u])])
+
+#			} 
+		
+#			if (u >1){
+	
+#			Inhomogeneitysub$MEAN[u]=mean(stat$Difference[(Inhomogeneitysub$MonthNo[u-1]):(Inhomogeneitysub$MonthNo[u])])	
+#			Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[(Inhomogeneitysub$MonthNo[u-1]):(Inhomogeneitysub$MonthNo[u])])				
+#			Inhomogeneitysub$Length[u]=length(stat$Difference[(Inhomogeneitysub$MonthNo[u-1]):(Inhomogeneitysub$MonthNo[u])])	
+				
+#			}
+#		}	
+#	}
+
+#	Inhomogeneity2sub1=rbind(Inhomogeneity2sub1,Inhomogeneitysub)
+
+#}
+
+#save(wymonthly22dstep,Inhomogeneity2sub1,file='Inhomogeneity2sub1_denser_11914_step.RData')
+
+
+

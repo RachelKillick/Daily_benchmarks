@@ -1,0 +1,484 @@
+# This script is the final version used on the smaller realisation of the North East:
+
+# Decided on a 40 stat smooth 
+
+library(mgcv) # Necessary for the prediction stage
+
+load('newup_ne_comp_221014_relocations_full_smaller_40_less.RData') # The station data - complete with relocation options - could make this smaller by getting rid of some extraneous variables - but should be OK as is I think 
+
+# Load the model that the predictions need to be made from:
+
+load('modelnecoast5gf3other.RData')
+
+Predictset=newup # I'll have to make sure that this is updated to be the correct name from the loaded file
+rm(newup) # Remove the dataframe newup as I don't want two massive datasets floating around
+
+Predictset$Station=sort(rep(1:146,30680))
+
+Predictset$noise=Predictset$pred5other-Predictset$lsmodel40
+# pred5th1 = 60 - raw preds
+# pred5th1gam = unsmoothed noise - raw preds (i.e. this is the unsmoothed noise that will be added on because the mean has been subtracted)
+# lsmodel...= 60 - (smoothed noise + (60 - pred5th1)) = 60 - (smoothed noise + 60 - (60 - raw preds)) = 60 - (smoothed noise + raw preds) = 60 - raw preds - smoothed noise = pred5th1 - smoothed noise => smoothed noise = pred5th1 - lsmodel... 
+
+# Make an extra row that will be storing the new predictions (with added noise)
+
+Predictset$Inhomogeneous=NA
+
+Predictsetf=Predictset[Predictset$Station_Realisation==6,] # Need to create this dataframe otherwise my new predictions and my old dataframe won't have the same number of rows...
+
+# Now load in the dataframe with the observations so that I can make everything missing to the level of the real world:
+
+load('/scratch/rw307/Reading/Scripts/NorthEast/necoastlattimenolakes.RData')
+necoastlat=necoastlattimenolakes[with(necoastlattimenolakes,order(Station)),]
+
+TMEANl=necoastlat[necoastlat$Station!=103,]
+TMEANl=TMEANl[TMEANl$Station!=126,] # Getting rid of the two stats I don't have in my predicted smaller world
+
+# Check the datasets are in the same order in another document
+
+Predictsetf$TMEAN=TMEANl$TMEAN
+
+# Want to be able to store the location of the inhomogeneities (and their types) not sure how many there will be at each station => make the storage dataframe much bigger than it should need to be (i.e. Suppose 10 inhomogeneities at ALL stations - so as long as they don't all have more than ten it should be OK)
+
+Inhomogeneity=as.data.frame(matrix(nrow=1460,ncol=5))
+names(Inhomogeneity)=c('Station','Location','Type','Method','Size_implemented')
+
+# Want to be able to store the length of urbanisation inhomogeneities:
+
+Urbanisation=as.data.frame(matrix(nrow=146,ncol=3)) # Doesn't need to be bigger than 75 as each station can have a max of one inhomogeneity
+names(Urbanisation)=c('Station','Location','HalfLength')
+
+num1=1 # This can be updated as I need to keep a running total of what number inhomogeneity I am on overall so I can add to the appropriate row of the data frame (of course if I want clustered inhomogeneities I'll have to still give that some thought of how to correctly add these in)
+
+for (i in 1:146){
+
+	stat=Predictset[Predictset$Station==i & Predictset$Station_Realisation==6,] # This is where the station will end up
+
+	# Run Poisson process to decide location of inhomogeneities:
+
+	loc=round(14610*cumsum(rexp(15,3))) # I'm multiplying by the number of days an IH can occur on 
+	loca=na.omit(stat[loc,14]) # Get just the elements that are less than the length of the time series - NEED TO MAKE SURE
+	# YOU'RE LOOKING AT THE TIME COLUMN OTHERWISE NAS IN OTHER COLUMNS WILL CAUSE PROBLEMS! 
+	
+	loca=loca[loca<=14610] # So that inhomogeneities can't occur in the last two years of the record
+
+	loca=sort(loca,decreasing=TRUE) # This just means that my 'last' IH will get implemented first so that they won't
+	# interfere with each other in a way I don't like
+
+	# Use a RNG to decide type of inhomgogeneity:
+
+	# Provisionally if we think abrupt changes are more common than gradual:
+
+	n=length(loca) # The number of inhomogeneities we have
+	n1=length(loca) # Just so  I'm not using the same index in 2 loops (even though they should be indexed on the same thing!)
+
+	# At this stage I want to make sure there isn't more than one urbanisation IH in a series:
+
+	if (n1 != 0 ){
+
+		inhomog=as.data.frame(matrix(nrow=n1,ncol=1))
+	
+		inhomog[1,1]=runif(1,0,1)
+
+		for (f in 2:n1){
+
+			g = f - 1
+	
+			if (sum(inhomog[1:g,1]<=0.67)==g) {
+		
+				inhomog[f,1]=runif(1,0,1) # The random number for each inhomogeneity	
+		
+			} else { inhomog[f,1]=runif(1,0,0.67) # Can ONLY be a station relocation or a shelter change (becuase
+				# urbanisation has already happened)
+			}
+		}
+	}
+
+        t=runif(n,0,1) # Deciding how the inhomogeneity will be implemented 
+
+	# If the explan var effect is going to be amplified this can be done within the individual bits in the loop...
+
+	if (n==0) { # A quick failsafe (I hope) for if there are no inhomogeneities
+
+		stat = stat
+
+	} else { for (j in 1:n){
+
+				p=loca[j] # So that I have the point at which an inhomogeneity occurs:
+	
+				if (t[j] <= 0.3){ # Making explanatory variable IH addition more likely than constant offset
+
+					if (inhomog[j,1]<=0.67){ # Shelter change - constant offset on noise
+
+					sc=sample(x=c(1.5,1.25,1,.75,.5,.25,-.25,-.5,-.75,-1,-1.25,-1.5),size=1)
+
+					stat$noise[1:p]=stat$noise[1:p]+sc # Shelter change can have a +ve or -ve effect
+	
+					}
+
+# Get rid of the station relocation option in this method of adding an inhomogeneity as it would either have to be exactly the same implementation as a shelter change, or the varaibles themselves would have to change which would then change it at the prediction level and not just the noise level
+
+#					if (0.34<=inhomog[j,1] & inhomog[j,1]<=0.67){ # Station Relocation
+
+#					sc=sample(x=c(1.5,1.25,1,.75,.5,.25,-.25,-.5,-.75,-1,-1.25,-1.5),size=1)
+
+					# Even if I'm not using explan vars to implement this change, the station data I'm
+					# reading in should change because it may be necssary later in the code
+
+#					sr=stat$Station_Realisation[p]
+
+#					statn=Predictset[Predictset$Station==i & Predictset$Station_Realisation!=sr,]
+
+#					stat[1:p,]=statn[1:p,]
+
+#					stat$noise[1:p]=stat$noise[1:p]+sc
+
+#					}
+
+					if (0.67<inhomog[j,1]){ # Gradual change
+					
+						l=rnorm(1,mean=5475,sd=1095) # Decide the length of the urbanisation IH
+						l2=floor((l/2)) # To make sure the IH has a length divisible by 2!
+
+						# The two if loops here try and ensure that I don't get a very unrealistic IH size
+						# over the time period given
+
+							if (l<= 5475){
+
+								sc=sample(x=c(.1,.15,.2),size=1)
+
+							}
+
+							if (l > 5475){
+		
+								sc=sample(x=c(.15,.2,.25,.5,1,1.25),size=1)
+
+							}	
+	
+						amp1=seq(sc,(sc/2),length=l2)
+						amp2=seq((sc/2),0,length=l2)
+
+							if ((p+l2) > 15340 & (p-l2) <0) { # Overshoots both ends
+	
+								stat$noise[1:p]=amp1[(l2-p+1):l2]+stat$noise[1:p]
+								stat$noise[(p+1):15340]=amp2[1:(15340-p)]+stat$noise[(p+1):15340]
+		
+							}
+
+							if ((p+l2) > 15340 & (p-l2)>0) { # Overshoots upper end
+	
+								stat$noise[(p-l2+1):p]=amp1+stat$noise[(p-l2+1):p]
+								stat$noise[(p+1):15340]=amp2[1:(15340-p)]+stat$noise[(p+1):15340]
+								stat$noise[1:(p-l2)]=amp1[1]+stat$noise[1:(p-l2)]
+						
+							}
+
+							if ((p+l2) < 15340 & (p+l2) > 14610 & (p-l2) >0 ){ # Would end in final
+							# two years of record
+
+								stat$noise[(p-l2+1):p]=amp1+stat$noise[(p-l2+1):p]
+								stat$noise[(p+1):14610]=amp2[1:(14610-p)]+stat$noise[(p+1):14610] 
+								stat$noise[1:(p-l2)]=amp1[1]+stat$noise[1:(p-l2)]
+
+							}
+
+							if ((p+l2) < 15340 & (p+l2) > 14610 & (p-l2)<0){ # Overshoots lower end
+							# and would end in final two years of the record
+		
+								stat$noise[1:p]=amp1[(l2-p+1):l2]+stat$noise[1:p]
+								stat$noise[(p+1):14610]=amp2[1:(14610-p)]+stat$noise[(p+1):14610] 
+								
+							}
+
+							if ((p+l2) <= 14610 & (p-l2)<0){ # Overshoots lower end
+							# and wouldn't end in final two years of the record
+		
+								stat$noise[1:p]=amp1[(l2-p+1):l2]+stat$noise[1:p]
+								stat$noise[(p+1):(p+l2)]=amp2+stat$noise[(p+1):(p+l2)]
+		
+							}
+
+							if ((p+l2) <= 14610 & (p-l2)>0){ # Doesn't overshoot at all
+
+								stat$noise[(p-l2+1):p]=amp1+stat$noise[(p-l2+1):p]
+								stat$noise[(p+1):(p+l2)]=amp2+stat$noise[(p+1):(p+l2)]
+								stat$noise[1:(p-l2)]=amp1[1]+stat$noise[1:(p-l2)]
+
+							}
+
+						Urbanisation[i,1]=i
+						Urbanisation[i,2]=loca[j] # Where loca[j] is the MIDPOINT of the IH
+						Urbanisation[i,3]=l2 # Half length of the IH
+							
+					}
+
+				} else { 
+
+					if (inhomog[j,1]<0.34){ # Shelter change - so either wind and sun will both be amplified 
+					# or they will both be damped
+					
+						sc=sample(x=c(.85,.9,.95,1.05,1.1,1.15),size=1)
+
+						stat$uw[1:p]=sc*stat$uw[1:p]
+						stat$vw[1:p]=sc*stat$vw[1:p]
+						stat$sun[1:p]=sc*stat$sun[1:p] # Della-Marta and Wanner 2006
+	
+					}
+
+					if (0.34<=inhomog[j,1] & inhomog[j,1]<=0.67){ # Station Relocation 
+
+						sr=stat$Station_Realisation[p]
+	
+						statn=Predictset[Predictset$Station==i & Predictset$Station_Realisation!=sr,]
+		
+						ns=stat$noise # This is the noise from the original station 
+	
+						stat[1:p,]=statn[1:p,]
+
+						stat$noise=ns # To make sure that the underlying predictions are the only things 
+						# that are changing - though I suspect this will result in not enough change and 
+						# the amplification/ dampening of explanatory vars will also be necessary
+
+						# Need to have an sc (size of change) to store - can't make it NA
+
+						# Can also choose to amplify some of the changes in explanatory variables:
+						sc=0 #sample(x=c(.95,1.05),size=1) 
+#						stat$uw[1:p]=sc*stat$uw[1:p]
+#						stat$vw[1:p]=sc*stat$vw[1:p]
+#						stat$sun[1:p]=sc*stat$sun[1:p]
+#						stat$pwc[1:p]=sc*stat$pwc[1:p]
+
+					}
+
+					if (0.67<inhomog[j,1]){ # Gradual change - implemented by there being less sun in the 
+					# past than in the present and higher wind and humidity in the past than in the present
+	
+						l=rnorm(1,mean=5475,sd=1095) # Decide the length of the urbanisation IH
+						l2=floor((l/2)) # To make sure the IH has a length divisible by 2!
+	
+
+						if (l<= 5475){
+
+							sc=.975 # Can only change by the smallest option 
+
+						}
+
+						if (l > 5475){
+		
+							sc=sample(x=c(.925,.95,.975),size=1) # Max anything could increase by is
+							# 7.5% - is this still too much?
+
+						}	
+
+						damp1=seq(sc,(sc+(1-sc)/2),length=l2)
+						damp2=seq((sc+(1-sc)/2),1,length=l2)
+
+						amp1=seq((2-sc),(2-(sc+(1-sc)/2)),length=l2)
+						amp2=seq((2-(sc+(1-sc)/2)),1,length=l2)
+
+						if ((p+l2) > 15340 & (p-l2) <0) { # Overshoots both ends
+
+							stat$sun[1:p]=damp1[(l2-p+1):l2]*stat$sun[1:p]
+#							stat$pwc[1:p]=amp1[(l2-p+1):l2]*stat$pwc[1:p]
+							stat$uw[1:p]=amp1[(l2-p+1):l2]*stat$uw[1:p]
+							stat$vw[1:p]=amp1[(l2-p+1):l2]*stat$vw[1:p]
+							stat$sun[(p+1):15340]=damp2[1:(15340-p)]*stat$sun[(p+1):15340]
+#							stat$pwc[(p+1):15340]=amp2[1:(15340-p)]*stat$pwc[(p+1):15340]
+							stat$uw[(p+1):15340]=amp2[1:(15340-p)]*stat$uw[(p+1):15340]
+							stat$vw[(p+1):15340]=amp2[1:(15340-p)]*stat$vw[(p+1):15340]
+	
+						}
+
+						if ((p+l2) > 15340 & (p-l2)>0){ # Overshoots upper end
+	
+							stat$sun[(p-l2+1):p]=damp1*stat$sun[(p-l2+1):p]
+#							stat$pwc[(p-l2+1):p]=amp1*stat$pwc[(p-l2+1):p]
+							stat$uw[(p-l2+1):p]=amp1*stat$uw[(p-l2+1):p]
+							stat$vw[(p-l2+1):p]=amp1*stat$vw[(p-l2+1):p]
+							stat$sun[(p+1):15340]=damp2[1:(15340-p)]*stat$sun[(p+1):15340]
+#							stat$pwc[(p+1):15340]=amp2[1:(15340-p)]*stat$pwc[(p+1):15340]
+							stat$uw[(p+1):15340]=amp2[1:(15340-p)]*stat$uw[(p+1):15340]
+							stat$vw[(p+1):15340]=amp2[1:(15340-p)]*stat$vw[(p+1):15340]
+						
+						}
+
+
+						if ((p+l2) < 15340 & (p+l2) > 14610 & (p-l2) >0 ){ # Would end in final
+							# two years of record
+
+							stat$sun[(p-l2+1):p]=damp1*stat$sun[(p-l2+1):p]
+#							stat$pwc[(p-l2+1):p]=amp1*stat$pwc[(p-l2+1):p]
+							stat$uw[(p-l2+1):p]=amp1*stat$uw[(p-l2+1):p]
+							stat$vw[(p-l2+1):p]=amp1*stat$vw[(p-l2+1):p]
+							stat$sun[(p+1):14610]=damp2[1:(14610-p)]*stat$sun[(p+1):14610] 
+#							stat$pwc[(p+1):14610]=amp2[1:(14610-p)]*stat$pwc[(p+1):14610] 
+							stat$uw[(p+1):14610]=amp2[1:(14610-p)]*stat$uw[(p+1):14610] 
+							stat$vw[(p+1):14610]=amp2[1:(14610-p)]*stat$vw[(p+1):14610] 
+						}
+
+						if ((p+l2) < 15340 & (p+l2) > 14610 & (p-l2)<0){ # Overshoots lower end
+						# and would end in final two years of the record
+
+							stat$sun[1:p]=damp1[(l2-p+1):l2]*stat$sun[1:p]
+#							stat$pwc[1:p]=amp1[(l2-p+1):l2]*stat$pwc[1:p]
+							stat$uw[1:p]=amp1[(l2-p+1):l2]*stat$uw[1:p]
+							stat$vw[1:p]=amp1[(l2-p+1):l2]*stat$vw[1:p]
+							stat$sun[(p+1):14610]=damp2[1:(14610-p)]*stat$sun[(p+1):14610] 
+#							stat$pwc[(p+1):14610]=amp2[1:(14610-p)]*stat$pwc[(p+1):14610] 
+							stat$uw[(p+1):14610]=amp2[1:(14610-p)]*stat$uw[(p+1):14610] 
+							stat$vw[(p+1):14610]=amp2[1:(14610-p)]*stat$vw[(p+1):14610] 
+						
+						}
+
+						if ((p+l2) <= 14610 & (p-l2)<0){ # Overshoots lower end and wouldn't end in final
+						# two years of the record
+	
+							stat$sun[1:p]=damp1[(l2-p+1):l2]*stat$sun[1:p]
+#							stat$pwc[1:p]=amp1[(l2-p+1):l2]*stat$pwc[1:p]
+							stat$uw[1:p]=amp1[(l2-p+1):l2]*stat$uw[1:p]
+							stat$vw[1:p]=amp1[(l2-p+1):l2]*stat$vw[1:p]
+							stat$sun[(p+1):(p+l2)]=damp2*stat$sun[(p+1):(p+l2)]
+#							stat$pwc[(p+1):(p+l2)]=amp2*stat$pwc[(p+1):(p+l2)]
+							stat$uw[(p+1):(p+l2)]=amp2*stat$uw[(p+1):(p+l2)]
+							stat$vw[(p+1):(p+l2)]=amp2*stat$vw[(p+1):(p+l2)]
+	
+						}
+
+						if ((p+l2) <= 14610 & (p-l2)>0){ # Doesn't overshoot at all
+
+							stat$sun[(p-l2+1):p]=damp1*stat$sun[(p-l2+1):p]
+#							stat$pwc[(p-l2+1):p]=amp1*stat$pwc[(p-l2+1):p]
+							stat$uw[(p-l2+1):p]=amp1*stat$uw[(p-l2+1):p]
+							stat$vw[(p-l2+1):p]=amp1*stat$vw[(p-l2+1):p]
+							stat$sun[(p+1):(p+l2)]=damp2*stat$sun[(p+1):(p+l2)]
+#							stat$pwc[(p+1):(p+l2)]=amp2*stat$pwc[(p+1):(p+l2)]
+							stat$uw[(p+1):(p+l2)]=amp2*stat$uw[(p+1):(p+l2)]
+							stat$vw[(p+1):(p+l2)]=amp2*stat$vw[(p+1):(p+l2)]
+						}
+					
+						if ((p-l2)>0){ # So we don't have overshoot at the lower end and I'm hoping this 
+						# will work even if one of the other loops has already been called...
+
+							statval=mean((60-predict.gam(modelnecoast5gf3other,newdata=stat[(p-l2+1):(p-l2+10),],type="response"))-(stat[(p-l2+1):(p-l2+10),19])) # Get a starting value for the urbanisation IH - This 19 needs to be whichever column is lsmodel...
+							stat$noise[1:(p-l2)]=statval+stat$noise[1:(p-l2)]
+
+						}
+
+					Urbanisation[i,1]=i
+					Urbanisation[i,2]=loca[j]
+					Urbanisation[i,3]=l2
+					
+					}
+	
+				}
+	
+			Inhomogeneity$Station[(num1)]=stat$Station[1]
+			Inhomogeneity$Location[(num1)]=loca[j]
+			Inhomogeneity$Type[(num1)]=inhomog[j,1]
+			Inhomogeneity$Method[(num1)]=t[j]
+			Inhomogeneity$Size_implemented[(num1)]=sc
+
+			num1=num1+1 # So that the row I'm filling in of the IH table changes each time
+		
+		}
+
+	}
+
+	statnew=(60-predict.gam(modelnecoast5gf3other,newdata=stat,type="response"))
+
+	Predictsetf[Predictsetf$Station==i,21]=statnew-stat$noise # The 21 here needs to be reset to be whichever column is the
+	# column called Inhomogeneous # I HAVE CHANGED THIS FROM A PLUS TO A MINUS IN THIS VERSION BECAUSE I THINK THAT'S RIGHT 
+	# DOUBLE CHECK ONCE MORE THOUGH - I have now double checked and I'm sure it is right - workings are in scanned document 
+	# 'Noise_addition_221014.pdf' - of course if this makes everything look terrible I'll know to try again...
+
+}
+
+# This preliminary work is looking promising => SAVE IT:
+
+Inhomogeneity=na.omit(Inhomogeneity) # So I don't have all the extra rows that I initially created to store my values in 
+Urbanisation=na.omit(Urbanisation)
+
+Urbanisation1=Urbanisation # So I can keep the existing Urbanisation dataframe as it is and don't have to worry about accidentally corrupting it!
+
+Urbanisation1$Start=Urbanisation1$Location-Urbanisation1$HalfLength
+Urbanisation1$End=Urbanisation1$Location+Urbanisation1$HalfLength
+
+Urbanisation1[Urbanisation1$Start<1,4]=1 # So ones that over-run are marked as starting on day 1
+Urbanisation1[Urbanisation1$End >14610 & Urbanisation1$End <= 15340,5 ]=14610 # So ones that would finish in the last 2 years are marked as finishing on day 14610 (31/12/09)
+# Don't know what to do about those that over-run completely and are still going when the record ends - double check that we're DEFINITELY happy with these happening... - The consensus was that yes this is fine - so I think I'll just leave the recorded endpoint as being outside the station record
+
+Predictsetf$Difference=Predictsetf$Inhomogeneous-Predictsetf$lsmodel40
+
+Predictsetf1=Predictsetf # Just in case something goes wrong!
+
+# I now need to make the data missing to the same level as it was in the original data:
+
+Predictsetf1[is.na(Predictsetf1$TMEAN),21] <- NA # Need to make sure that Predictsetf actually HAS a TMEAN column for this to work!
+Predictsetf1$Difference=Predictsetf1$Inhomogeneous-Predictsetf1$lsmodel40
+
+save(Inhomogeneity,Predictsetf,Predictsetf1,Urbanisation,Urbanisation1,file="NE_world_1_241014.RData") 
+
+# Need to see if Predictsetf1 has done what it should...
+
+Inhomogeneity1=Inhomogeneity # This way I have a copy of my original dataframe in case anything goes wrong!
+
+# The size of an inhomogeneity over a time-period will be the difference between the inhomogeneous series and the clean series (ls...) (probably averaged) over that time period
+# Think about whether people are going to homogenise relative to the last homogeneous sub-period or the period next to where they are - my inhomogeneities are going to stack one on top of each other, so if someone doesn't find one I need to think about what that will look like for them, so I know how to assess it... => I probably need to work out the difference on average between the last HSP and the IH period => I need to know the length of the last HSP so I know what to average over => need to do this in the long term, but I think for now it is sufficient to look at the difference between the clean and inhomogeneous data over the IH period to get a general idea of the size of the IH - so I can see if they look to be distributed right now that I've corrected (hopefully) my noise addition method
+
+Inhomogeneity1$MEAN=NULL
+Inhomogeneity1$MEDIAN=NULL
+
+Inhomogeneitysub1=NULL
+
+for (s in 1:146){
+
+	stat=Predictsetf1[Predictsetf1$Station==s,]	
+	Inhomogeneitysub=Inhomogeneity1[Inhomogeneity1$Station==s,]
+	Inhomogeneitysub=Inhomogeneitysub[with(Inhomogeneitysub,order(Location)),] # So that the IHs are in time order now - not 
+	# the order they were implemented in
+	t=nrow(Inhomogeneitysub)
+
+	if (t==0){
+	#If this is true (i.e. t=0) I don't want anything to happen - so I'll see if this does what I expect...
+	}
+
+	if (t==1){ # Need the na.rm=TRUE commands in there now because there are missing values
+
+		Inhomogeneitysub$MEAN[t]=mean(stat$Difference[1:(Inhomogeneitysub$Location[t])],na.rm=TRUE)
+		Inhomogeneitysub$MEDIAN[t]=median(stat$Difference[1:(Inhomogeneitysub$Location[t])],na.rm=TRUE)
+		Inhomogeneitysub$Length[t]=length(stat$Difference[1:(Inhomogeneitysub$Location[t])])
+
+	} 
+	
+	if (t>1) {
+
+		for (u in 1:t){
+
+			if (u==1){
+
+				Inhomogeneitysub$MEAN[u]=mean(stat$Difference[1:(Inhomogeneitysub$Location[u])],na.rm=TRUE)
+				Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[1:(Inhomogeneitysub$Location[u])],na.rm=TRUE)
+				Inhomogeneitysub$Length[u]=length(stat$Difference[1:(Inhomogeneitysub$Location[u])])
+
+			} 
+	
+			if (u >1){
+	
+			Inhomogeneitysub$MEAN[u]=mean(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])],na.rm=TRUE)	
+			Inhomogeneitysub$MEDIAN[u]=median(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])],na.rm=TRUE)				
+			Inhomogeneitysub$Length[u]=length(stat$Difference[(Inhomogeneitysub$Location[u-1]):(Inhomogeneitysub$Location[u])])	
+				
+			}
+		}	
+	}
+
+	Inhomogeneitysub1=rbind(Inhomogeneitysub1,Inhomogeneitysub)
+
+}
+
+save(Inhomogeneitysub1,file='Inhomogeneitysub1_NE_world_1_241014.RData')
+
+
+
+
+
