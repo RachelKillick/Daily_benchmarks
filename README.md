@@ -15,3 +15,5 @@ Code used to corrupt the data is found in the Inhomogeneities folder.
 Adapted code contains just a single file loesssurf1 - which was adapted from the inbuilt R loesssurf function to allow predictions to be made from it.
 
 If you wish to just pick up the complete clean data and the complete corrupted data please go to https://www.metoffice.gov.uk/hadobs/benchmarks/.
+
+Code used to evaluate the returned data can be found in the Evaluation folder. This code is an adaptation of that used to assess the Climatol contribution, but provided the data to be evaluated have a similar format it can be easily reused to evaluate any contribution.
