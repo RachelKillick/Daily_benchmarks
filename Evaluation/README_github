@@ -1,0 +1,24 @@
+This folder contains details on what is necessary to analyse the returned contributions of the benchmarking comparison study.
+
+All data were released in the format that true station data from GHNCD-daily were stored in. Details of this format and the released data themselves can be found at https://www.metoffice.gov.uk/hadobs/benchmarks/download.html.
+
+All data were requested to be returned in the same format that they were released in, with a separate file containing the locations of the inhomogeneities that had been found.
+
+Once the data had been returned in this format they needed to be processed to be in the format expected by R, this included ensuring they were now rounded to one decimal place and had the same missing data as on release. An example of how to do this processing is in the 'Example_code' folder with the name 'Formatting_example_Climatol_daily.R'.
+
+Within this example there is the need to read in the station codes for the region of interest. These are stored in the 'Station_codes' folder. Station codes for Wyoming, the North East and the South West are also stored in this folder. There is also the need to unzip the folder Climatol-daily-SE-1 before proceeding with this example.
+
+Some of the data files needed for the examples are too large to upload to GitHub, but can be acquired by contacting rachel.killick@metoffice.gov.uk. 
+
+Once 'Formatting_example_Climatol_daily.R' has been run (or alternative data has been processed to be in the expected format) the evaluation code can be used. The example evaluation code is in the 'Example_code' folder with the name 'Assessment_example_Climatol_daily.R'. This covers the assessment of bias, RMSE, trends, variability, extreme value recovery and break detection.
+
+This code requires a station list with the latitudes and longitudes of the stations in the region being evaluated. These are stored in the 'Station_locations' folder.
+
+You can choose to focus some of your evaluation on the stations which were identified as best and worst in a region (best are the 10 with the smallest released RMSEs relative to the clean data and worst are the 10 with the largest RMSEs relative to the clean data). Best and worst stations for all regions are stored in the 'Best_and_worst_stations' folder.
+
+If you want to produce percentage trend recovery plots, similar to those appearing in the paper, you will need the code Percentage_trend_recovery_function_updated.RData from the 'R_input_files' folder. You can also use 'wyupdate29gam.RData' from the same folder to insert a 'Year' column when looking at trends.
+
+When looking at the detection ability you will need to make use of the files in the 'Inhomogeneity_location_windows' folder. This folder contains the relevant files for all region/scenario pairs.
+
+
+
